@@ -2,62 +2,64 @@ pipeline {
     agent any
 
     environment {
-        FLASK_IMAGE = "manusharma07/fibonacci_flask_app"
-        NGINX_IMAGE = "manusharma07/fibonacci_nginx"
-        COMMIT_HASH = "" // will be set dynamically
+        DOCKER_HUB_REPO_FLASK = "manusharma07/fibonacci_flask_app"
+        DOCKER_HUB_REPO_NGINX = "manusharma07/fibonacci_nginx"
+        COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Build Flask App Image') {
             steps {
-                script {
-                    git branch: 'master',
-                        url: 'git@github.com:sharmamanu07/fibonacci_web_app.git',
-                        credentialsId: 'github-ssh-key'
-
-                    // Get short commit hash for tagging
-                    COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                }
-            }
-        }
-
-        stage('Docker Login') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh "echo $PASSWORD | docker login -u $USERNAME --password-stdin"
-                }
-            }
-        }
-
-        stage('Build Images') {
-            steps {
-                script {
-                    // Build flask_app
+                dir('flask_app') {
                     sh """
-                    docker build -t ${FLASK_IMAGE}:latest -t ${FLASK_IMAGE}:${COMMIT_HASH} ./flask_app
-                    """
-
-                    // Build nginx
-                    sh """
-                    docker build -t ${NGINX_IMAGE}:latest -t ${NGINX_IMAGE}:${COMMIT_HASH} ./nginx
+                        docker build \
+                            -t ${DOCKER_HUB_REPO_FLASK}:latest \
+                            -t ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH} .
                     """
                 }
             }
         }
 
-        stage('Push Images') {
+        stage('Build Nginx Image') {
             steps {
-                script {
-                    dockerPush("${FLASK_IMAGE}:latest")
-                    dockerPush("${FLASK_IMAGE}:${COMMIT_HASH}")
-                    dockerPush("${NGINX_IMAGE}:latest")
-                    dockerPush("${NGINX_IMAGE}:${COMMIT_HASH}")
+                dir('nginx') {
+                    sh """
+                        docker build \
+                            -t ${DOCKER_HUB_REPO_NGINX}:latest \
+                            -t ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH} .
+                    """
                 }
             }
         }
-    }
-}
 
-def dockerPush(tag) {
-    sh "docker push ${tag}"
-}
+        stage('Push Images to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+                        docker push ${DOCKER_HUB_REPO_FLASK}:latest
+                        docker push ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH}
+
+                        docker push ${DOCKER_HUB_REPO_NGINX}:latest
+                        docker push ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH}
+                    """
+                }
+            }
+        }
+
+        stage('Cleanup Local Images') {
+            steps {
+                sh """
+                    echo "Cleaning up local Docker images..."
+                    docker rmi ${DOCKER_HUB_REPO_FLASK}:latest || true
+                    docker rmi ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH} || true
+                    docker rmi ${DOCKER_HUB_REPO_NGINX}:latest || true
+                    docker rmi ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH} || true
+                    docker system prune -f || true
+                """
+            }
+        }
+    } // closes stages
+} // closes pipeline
+
