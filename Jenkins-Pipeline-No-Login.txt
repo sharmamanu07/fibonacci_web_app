@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USER = 'sharmamanu07'
+        FLASK_IMAGE = "${DOCKERHUB_USER}/fibonacci_flask_app:latest"
+        NGINX_IMAGE = "${DOCKERHUB_USER}/fibonacci_nginx:latest"
+        NETWORK_NAME = 'fibonacci_network'
+    }
+
+    stages {
+        stage('Pull Docker Images') {
+            steps {
+                sh """
+                    docker pull $FLASK_IMAGE
+                    docker pull $NGINX_IMAGE
+                """
+            }
+        }
+
+        stage('Create Network') {
+            steps {
+                sh """
+                    if [ -z "\$(docker network ls --filter name=^${NETWORK_NAME}\$ --format '{{.Name}}')" ]; then
+                        docker network create $NETWORK_NAME
+                    fi
+                """
+            }
+        }
+
+        stage('Run Flask App Container') {
+            steps {
+                sh """
+                    docker rm -f flask_app || true
+                    docker run -d --name flask_app --network $NETWORK_NAME $FLASK_IMAGE
+                """
+            }
+        }
+
+        stage('Run Nginx Container') {
+            steps {
+                sh """
+                    docker rm -f nginx_app || true
+                    docker run -d --name nginx_app --network $NETWORK_NAME -p 80:80 $NGINX_IMAGE
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Fibonacci application is running at http://<your-server-ip>"
+        }
+        failure {
+            echo "Deployment failed!"
+        }
+    }
+}

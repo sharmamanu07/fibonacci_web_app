@@ -1,0 +1,37 @@
+pipeline {
+    agent any
+    environment {
+        DOCKERHUB_USER = 'manusharma07'
+        FLASK_IMAGE = "${DOCKERHUB_USER}/fibonacci_flask_app:latest"
+        NGINX_IMAGE = "${DOCKERHUB_USER}/fibonacci_nginx:latest"
+        NETWORK_NAME = 'fibonacci_network'
+    }
+    stages {
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    sh "echo $PASSWORD | docker login -u $USERNAME --password-stdin"
+                }
+            }
+        }
+        stage('Pull Images') {
+            steps {
+                sh "docker pull $FLASK_IMAGE"
+                sh "docker pull $NGINX_IMAGE"
+            }
+        }
+        stage('Deploy Containers') {
+            steps {
+                sh """
+                docker network create $NETWORK_NAME || true
+
+                docker rm -f flask_app || true
+                docker run -d --name flask_app --network $NETWORK_NAME $FLASK_IMAGE
+
+                docker rm -f nginx_app || true
+                docker run -d --name nginx_app --network $NETWORK_NAME -p 80:80 $NGINX_IMAGE
+                """
+            }
+        }
+    }
+}
