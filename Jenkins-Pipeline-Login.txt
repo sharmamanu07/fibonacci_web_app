@@ -29,7 +29,7 @@ pipeline {
                 docker run -d --name flask_app --network $NETWORK_NAME $FLASK_IMAGE
 
                 docker rm -f nginx_app || true
-                docker run -d --name nginx_app --network $NETWORK_NAME -p 80:80 $NGINX_IMAGE
+                docker run -d --name nginx_app --network $NETWORK_NAME -p 8082:80 $NGINX_IMAGE
                 """
             }
         }

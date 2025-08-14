@@ -4,17 +4,32 @@ pipeline {
     environment {
         DOCKER_HUB_REPO_FLASK = "manusharma07/fibonacci_flask_app"
         DOCKER_HUB_REPO_NGINX = "manusharma07/fibonacci_nginx"
-        COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
     }
 
     stages {
+        stage('Checkout GitHub') {
+            steps {
+                checkout([$class: 'GitSCM',
+                          branches: [[name: '*/master']],
+                          userRemoteConfigs: [[credentialsId: 'github-ssh-key',
+                                               url: 'git@github.com:sharmamanu07/fibonacci_web_app.git']]])
+            }
+        }
+
+        stage('Get Commit Hash') {
+            steps {
+                script {
+                    COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    echo "Commit hash: ${COMMIT_HASH}"
+                }
+            }
+        }
+
         stage('Build Flask App Image') {
             steps {
                 dir('flask_app') {
                     sh """
-                        docker build \
-                            -t ${DOCKER_HUB_REPO_FLASK}:latest \
-                            -t ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH} .
+                        docker build -t ${DOCKER_HUB_REPO_FLASK}:latest -t ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH} .
                     """
                 }
             }
@@ -24,9 +39,7 @@ pipeline {
             steps {
                 dir('nginx') {
                     sh """
-                        docker build \
-                            -t ${DOCKER_HUB_REPO_NGINX}:latest \
-                            -t ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH} .
+                        docker build -t ${DOCKER_HUB_REPO_NGINX}:latest -t ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH} .
                     """
                 }
             }
@@ -48,18 +61,52 @@ pipeline {
             }
         }
 
+        stage('Deploy Application') {
+            steps {
+                script {
+                    sh """
+                        # Create Docker network if not exists
+                        docker network create fibonacci_network || true
+
+                        # Run Flask container
+                        docker run -d --name flask_app --network fibonacci_network -p 5000:5000 ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH}
+
+                        # Run Nginx container
+                        docker run -d --name nginx_app --network fibonacci_network -p 8082:80 ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH}
+                    """
+                }
+            }
+        }
+
         stage('Cleanup Local Images') {
             steps {
                 sh """
-                    echo "Cleaning up local Docker images..."
-                    docker rmi ${DOCKER_HUB_REPO_FLASK}:latest || true
-                    docker rmi ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH} || true
-                    docker rmi ${DOCKER_HUB_REPO_NGINX}:latest || true
-                    docker rmi ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH} || true
-                    docker system prune -f || true
+                    
+		    echo "Stopping and removing running containers..."
+            
+	            # Stop running Flask containers
+	            docker ps -q --filter "ancestor=${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH}" | xargs -r docker stop
+	            
+	            # Stop running Nginx containers
+	            docker ps -q --filter "ancestor=${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH}" | xargs -r docker stop
+	            
+	            # Remove stopped Flask containers
+	            docker ps -aq --filter "ancestor=${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH}" | xargs -r docker rm
+	            
+	            # Remove stopped Nginx containers
+	            docker ps -aq --filter "ancestor=${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH}" | xargs -r docker rm
+            
+	            echo "Removing local Docker images..."
+	            docker rmi -f ${DOCKER_HUB_REPO_FLASK}:latest || true
+	            docker rmi -f ${DOCKER_HUB_REPO_FLASK}:${COMMIT_HASH} || true
+        	    docker rmi -f ${DOCKER_HUB_REPO_NGINX}:latest || true
+	            docker rmi -f ${DOCKER_HUB_REPO_NGINX}:${COMMIT_HASH} || true
+
+        	    echo "Pruning unused Docker objects..."
+	            docker system prune -f || true
+
                 """
             }
         }
-    } // closes stages
-} // closes pipeline
-
+    }
+}
