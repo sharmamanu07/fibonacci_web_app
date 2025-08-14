@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+
+    environment {
+        FLASK_IMAGE = "manusharma07/fibonacci_flask_app"
+        NGINX_IMAGE = "manusharma07/fibonacci_nginx"
+        COMMIT_HASH = "" // will be set dynamically
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                script {
+                    git branch: 'master',
+                        url: 'git@github.com:sharmamanu07/fibonacci_web_app.git',
+                        credentialsId: 'github-ssh-key'
+
+                    // Get short commit hash for tagging
+                    COMMIT_HASH = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                }
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    sh "echo $PASSWORD | docker login -u $USERNAME --password-stdin"
+                }
+            }
+        }
+
+        stage('Build Images') {
+            steps {
+                script {
+                    // Build flask_app
+                    sh """
+                    docker build -t ${FLASK_IMAGE}:latest -t ${FLASK_IMAGE}:${COMMIT_HASH} ./flask_app
+                    """
+
+                    // Build nginx
+                    sh """
+                    docker build -t ${NGINX_IMAGE}:latest -t ${NGINX_IMAGE}:${COMMIT_HASH} ./nginx
+                    """
+                }
+            }
+        }
+
+        stage('Push Images') {
+            steps {
+                script {
+                    dockerPush("${FLASK_IMAGE}:latest")
+                    dockerPush("${FLASK_IMAGE}:${COMMIT_HASH}")
+                    dockerPush("${NGINX_IMAGE}:latest")
+                    dockerPush("${NGINX_IMAGE}:${COMMIT_HASH}")
+                }
+            }
+        }
+    }
+}
+
+def dockerPush(tag) {
+    sh "docker push ${tag}"
+}
