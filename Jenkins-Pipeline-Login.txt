@@ -5,6 +5,8 @@ pipeline {
         FLASK_IMAGE = "${DOCKERHUB_USER}/fibonacci_flask_app:latest"
         NGINX_IMAGE = "${DOCKERHUB_USER}/fibonacci_nginx:latest"
         NETWORK_NAME = 'fibonacci_network'
+        FLASK_PORT = '5000'   // internal Flask port
+        NGINX_PORT = '8082'   // external port for Nginx
     }
     stages {
         stage('Docker Login') {
@@ -23,13 +25,29 @@ pipeline {
         stage('Deploy Containers') {
             steps {
                 sh """
+                echo "Creating Docker network..."
                 docker network create $NETWORK_NAME || true
 
+                echo "Starting Flask container..."
                 docker rm -f flask_app || true
-                docker run -d --name flask_app --network $NETWORK_NAME $FLASK_IMAGE
+                docker run -d \
+                    --name flask_app \
+                    --network $NETWORK_NAME \
+                    -p $FLASK_PORT:$FLASK_PORT \
+                    $FLASK_IMAGE
 
+                echo "Starting Nginx container..."
                 docker rm -f nginx_app || true
-                docker run -d --name nginx_app --network $NETWORK_NAME -p 8082:80 $NGINX_IMAGE
+                docker run -d \
+                    --name nginx_app \
+                    --network $NETWORK_NAME \
+                    -p $NGINX_PORT:80 \
+                    -e FLASK_HOST=flask_app \
+                    -e FLASK_PORT=$FLASK_PORT \
+                    $NGINX_IMAGE
+
+                echo "Deployment complete!"
+                docker ps
                 """
             }
         }
