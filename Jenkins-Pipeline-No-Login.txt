@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_USER = 'sharmamanu07'
+        DOCKERHUB_USER = 'manusharma07'
         FLASK_IMAGE = "${DOCKERHUB_USER}/fibonacci_flask_app:latest"
         NGINX_IMAGE = "${DOCKERHUB_USER}/fibonacci_nginx:latest"
         NETWORK_NAME = 'fibonacci_network'
